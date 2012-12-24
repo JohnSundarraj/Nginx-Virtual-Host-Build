@@ -1,0 +1,417 @@
+#!/bin/bash
+if [ `whoami` = "root" ]; then
+   sleep 1
+else
+   printf "Please run this script as root. Run sudo -i on ubuntu systems\n\n";
+   exit 1
+fi
+app[0]="drupal-6";
+app[1]="drupal-7";
+app[2]="open-atrium";
+app[3]="wordpress";
+app[4]="zend-framework";
+app[5]="phplist";
+app[6]="simple-php";
+
+function checkVhFileExists() {
+	if [ -f "/etc/nginx/sites-enabled/$1" ]; then
+      printf "File already exists...exiting\n\n";		
+      exit;
+	else
+     	printf "Proceeding...Stage 2\n\n";	
+	fi
+}
+function checkFolderExists() {
+   if [ -d $1 ]; then
+      printf "Proceeding...Stage 3\n\n";	   
+   else
+      printf "App folder does not exists...exiting\n\n";
+      exit;
+   fi
+}
+function availableAppOptions() {
+   printf "The below listed tags are available options\n\n";
+   for((i=0;i<${#app[@]};i++));
+   do
+      printf "\t["${app[$i]}"]\n";
+   done
+   printf "Ex:Enter application tag option which you need to build virtual host: drupal-6\n\n";
+}
+function checkAppNameExists() {	
+	for i in ${app[*]}
+	do
+		if [ $i == $1 ]; then
+			checkSuccess="true"; 
+		fi
+	done
+}
+function validateHostName() {
+	if [[ -z "$1" ]]
+	then	
+      printf "Invalid host or domain name...exiting\n\n";
+      exit;
+	else
+      printf "Proceeding...Stage 5\n\n";   
+	fi		
+}
+function buildVhFile() {	
+	appName=$1;
+	vhFilename=$2;
+	folderName=$3;
+	hostName=$4;
+	touch /etc/nginx/sites-enabled/$vhFilename;   
+	if [ $appName == "drupal-6" ]; then
+		cat >> "/etc/nginx/sites-enabled/$vhFilename" <<EOF
+server {
+	server_name $hostName;
+  	root $folderName; ## <-- Your only path reference.
+	error_log /var/log/nginx/$vhFilename-error.log;
+  	access_log /var/log/nginx/$vhFilename-access.log;
+ 	location = /favicon.ico {
+		log_not_found off;
+		access_log off;
+ 	} 
+	location = /robots.txt {
+     	allow all;
+    	log_not_found off;
+     	access_log off;
+ 	}
+	# This matters if you use drush
+  	location = /backup {
+  		deny all;
+  	}
+ 	# Very rarely should these ever be accessed outside of your lan
+  	location ~* \.(txt|log)$ {
+    	allow 192.168.0.0/16;
+    	deny all;
+  	} 
+  	location ~ \..*/.*\.php$ {
+     	return 403;
+  	} 
+ 	location / {
+    	# This is cool because no php is touched for static content
+     	try_files \$uri @rewrite;
+  	}
+ 	location @rewrite {
+    	# Some modules enforce no slash (/) at the end of the URL
+     	# Else this rewrite block wouldn't be needed (GlobalRedirect)
+    	rewrite ^/(.*)$ /index.php?q=\$1;
+  	} 
+	location ~ \.php$ {
+    	#fastcgi_split_path_info ^(.+\.php)(/.+)$;
+     	#NOTE: You should have "cgi.fix_pathinfo = 0;" in php.ini
+     	include fastcgi_params;
+     	fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+     	#fastcgi_intercept_errors on;
+   	fastcgi_pass 127.0.0.1:9000;
+ 	} 
+ 	# Fighting with ImageCache? This little gem is amazing.
+  	location ~ ^/sites/.*/files/imagecache/ {
+     	try_files \$uri @rewrite;
+  	}
+  	# Catch image styles for D7 too.
+  	location ~ ^/sites/.*/files/styles/ {
+    	try_files \$uri @rewrite;
+  	}
+ 	location ~* \.(js|css|png|jpg|jpeg|gif|ico)$ {
+     	expires max;
+      log_not_found off;
+  	}
+}
+EOF
+
+	fi
+	if [ $appName == "drupal-7" ]; then
+		cat >> "/etc/nginx/sites-enabled/$vhFilename" <<EOF
+server {
+	server_name $hostName;
+	root $folderName; ## <-- Your only path reference.
+ 	error_log /var/log/nginx/$vhFilename-error.log;
+  	access_log /var/log/nginx/$vhFilename-access.log;
+  	location = /favicon.ico {
+    	log_not_found off;
+    	access_log off;
+  	}
+ 	location = /robots.txt {
+    	allow all;
+     	log_not_found off;
+     	access_log off;
+  	}
+	# Very rarely should these ever be accessed outside of your lan
+  	location ~* \.(txt|log)$ {
+   	deny all;
+  	}
+	location ~ \..*/.*\.php$ {
+   	return 403;
+  	}
+ 	location / {
+   	# This is cool because no php is touched for static content
+    	#index index.php index.htm index.html;
+     	try_files \$uri @rewrite;
+  	}
+  	location @rewrite {
+     	# Some modules enforce no slash (/) at the end of the URL
+     	# Else this rewrite block wouldn't be needed (GlobalRedirect)
+     	rewrite ^/(.*)$ /index.php?q=\$1;
+  	}
+  	location ~ \.php$ {
+    	fastcgi_pass   127.0.0.1:9000;
+     	fastcgi_index  index.php;
+     	fastcgi_param  SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+     	include /etc/nginx/fastcgi_params;
+  	}
+	# Fighting with ImageCache? This little gem is amazing.
+  	location ~ ^/sites/.*/files/imagecache/ {
+   	try_files \$uri @rewrite;
+  	}
+  	location ~* \.(js|css|png|jpg|jpeg|gif|ico)$ {
+     	expires max;
+     	log_not_found off;
+  	}
+ 	location ~* files/styles {
+    	try_files \$uri @rewrite;
+  	}
+}
+EOF
+
+	fi
+	if [ $appName == "open-atrium" ]; then
+		cat >> "/etc/nginx/sites-enabled/$vhFilename" <<EOF
+server {
+	server_name $hostName;
+	## To be placed at the the top of your vhost configuration (server).
+	## Protect the private files directory.
+	location ~* /sites/default/files/ {
+   		internal;
+	}
+	## Relay the file handling to Drupal at this location.
+	location ~* /system/files/ {
+ 		## fastcgi_params is a file at the nginx config root that contains
+  		## the 'usual' settings for FastCGI.
+   	include fastcgi_params;
+   	## Here begins the specific part.
+   	fastcgi_param QUERY_STRING q=\$uri;
+   	fastcgi_param SCRIPT_NAME /index.php;
+   	fastcgi_param SCRIPT_FILENAME \$document_root/index.php;
+   	## Adjust accordingly to your setup.
+   	## This assumes UNIX sockets with php-fpm.
+   	fastcgi_pass 127.0.0.1:9000;
+   	## Uncomment the line below to disable 404 logging.
+   	#log_not_found off;
+	}
+   root $folderName; ## <-- Your only path reference.
+   error_log /var/log/nginx/$vhFilename-error.log;
+   access_log /var/log/nginx/$vhFilename-access.log;
+   location = /favicon.ico {
+      log_not_found off;
+      access_log off;
+   }
+  	location = /robots.txt {
+   	allow all;
+     	log_not_found off;
+  		access_log off;
+  	} 
+  	# Very rarely should these ever be accessed outside of your lan
+  	location ~* \.(txt|log)$ {
+     	deny all;
+ 	} 
+	location ~ \..*/.*\.php$ {
+     	return 403;
+  	}
+ 	location / {
+   	# This is cool because no php is touched for static content
+     	#index index.php index.htm index.html;
+    	try_files \$uri @rewrite;
+  	}
+  	location @rewrite {
+     	# Some modules enforce no slash (/) at the end of the URL
+    	# Else this rewrite block wouldn't be needed (GlobalRedirect)
+     	rewrite ^/(.*)$ /index.php?q=\$1;
+  	}
+	location ~ \.php$ {
+		include /etc/nginx/fastcgi_params;
+     	fastcgi_pass   127.0.0.1:9000;
+     	fastcgi_index  index.php;
+   	fastcgi_param  SCRIPT_FILENAME \$document_root\$fastcgi_script_name;		     	
+  	}
+  	# Fighting with ImageCache? This little gem is amazing.
+  	location ~ ^/sites/.*/files/imagecache/ {
+     	try_files \$uri @rewrite;
+  	} 
+  	location ~* \.(js|css|png|jpg|jpeg|gif|ico)$ {
+     	expires max;
+     	log_not_found off;
+  	}
+}
+EOF
+
+	fi
+	if [ $appName == "wordpress" ]; then
+		cat >> "/etc/nginx/sites-enabled/$vhFilename" <<EOF
+server {
+   server_name $hostName;
+   access_log /var/log/nginx/$vhFilename-access.log;
+   error_log /var/log/nginx/$vhFilename-error.log;
+   root $folderName;
+   index index.php index.html index.htm;
+   # enforce www (exclude certain subdomains)
+   #if (\$host !~* ^(www|subdomain))
+   #{
+   #   rewrite ^/(.*)$ \$scheme://www.\$host/\$1 permanent;
+   #}
+   # enforce NO www
+   #if (\$host ~* ^www\.(.*)) {
+      #set \$host_without_www \$1;
+      #rewrite ^/(.*)$ \$scheme://\$host_without_www/\$1 permanent;
+   #}
+   # unless the request is for a valid file, send to bootstrap
+   if (!-e \$request_filename) {
+      rewrite ^(.+)$ /index.php?q=\$1 last;
+   }
+   # catch all
+   error_page 404 /index.php;
+   # use fastcgi for all php files
+   location ~ \.php$ {
+      fastcgi_pass 127.0.0.1:9000;
+      fastcgi_index index.php;
+      fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+      include fastcgi_params;
+   }
+   # deny access to apache .htaccess files
+   location ~ /\.ht {
+        deny all;
+   }
+}
+EOF
+
+	fi 
+  	if [ $appName == "zend-framework" ]; then
+   	cat >> "/etc/nginx/sites-enabled/$vhFilename" <<EOF
+server {   
+  	server_name $hostName;
+  	root $folderName/public;
+  	index /index.php;
+  	error_log /var/log/nginx/$vhFilename-error.log;
+  	access_log /var/log/nginx/$vhFilename-access.log;  
+   location / {
+      if (!-f \$request_filename) {
+         rewrite ^(.*)$ /index.php?q=\$1 last;
+         break;
+      }
+   }
+   location ~* ^.+.(css|js|jpeg|jpg|gif|png|ico) {
+      expires 30d;
+   }
+   location ~ .(php|phtml)$ {
+      fastcgi_pass 127.0.0.1:9000;
+      fastcgi_index /index.php;
+      fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+      include /etc/nginx/fastcgi_params;
+   }
+}
+EOF
+
+	fi
+   if [ $appName == "phplist" ]; then
+      cat >> "/etc/nginx/sites-enabled/$vhFilename" <<EOF
+server {                
+	server_name $hostName;
+  	root $folderName/public_html/lists;
+ 	index index.php; 
+ 	access_log /var/log/nginx/$vhFilename-access.log;
+	error_log /var/log/nginx/$vhFilename-error.log;
+  	charset utf-8; 	
+	location ~* \.(txt|log|inc)$ {
+   	allow 127.0.0.1;
+    	deny all;
+	} 
+ 	location ~* \.(js|css|png|jpg|jpeg|gif|ico)$ {
+   	expires max;
+    	log_not_found off;
+ 	} 
+ 	#block phplist config directory
+ 	location /config {
+   	deny all;
+ 	} 
+ 	#per the phplist .htaccess these are the only public allowed php files
+ 	location ~* (index\.php|upload\.php|connector\.php|dl\.php|ut\.php|lt\.php|download\.php)$ {
+   	fastcgi_split_path_info ^(.|\.php)(/.+)$;
+    	include /etc/nginx/fastcgi_params; #standar fastcgi config file
+     	fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+     	#fastcgi_intercept_errors on;
+    	fastcgi_pass 127.0.0.1:9000;
+ 	} 
+ 	#block all other php file access from public
+ 	location ~ \.php$ {
+   	deny all;
+ 	} 
+EOF
+
+   fi
+	if [ $appName == "simple-php" ]; then
+		cat >> "/etc/nginx/sites-enabled/$vhFilename" <<EOF
+server {
+	server_name $hostName;
+  	root $folderName; 
+  	error_log /var/log/nginx/$vhFilename-error.log;
+ 	access_log /var/log/nginx/$vhFilename-access.log;
+  	# Very rarely should these ever be accessed outside of your lan
+  	location ~* \.(txt|log)$ {
+  		deny all;
+  	}
+  	location ~ \..*/.*\.php$ {
+   	return 403;
+  	}
+  	location / {
+    	# This is cool because no php is touched for static content
+     	#index index.php index.htm index.html;
+     	try_files \$uri @rewrite;
+ 	}
+ 	location @rewrite {
+    	# Some modules enforce no slash (/) at the end of the URL
+    	# Else this rewrite block wouldn't be needed (GlobalRedirect)
+    	rewrite ^/(.*)$ /index.php?q=\$1;
+  	}
+  	location ~ \.php$ {
+     	fastcgi_pass   127.0.0.1:9000;
+     	fastcgi_index  index.php;
+     	fastcgi_param  SCRIPT_FILENAME  \$document_root\$fastcgi_script_name;
+ 		include /etc/nginx/fastcgi_params;
+  	}
+	location ~* \.(js|css|png|jpg|jpeg|gif|ico)$ {
+     	expires max;
+     	log_not_found off;
+   }
+}
+EOF
+
+	fi 	
+	printf "Virtual Host file has been generated successfully\n\n";			
+	printf "Reloading Nginx and PHP-FPM\n\n";
+	/etc/init.d/nginx reload;
+	/etc/init.d/php-fpm reload;	
+	if [ $? == "0" ]; then		
+		printf "Reloaded successfully\n\n";
+	else	
+		printf "Reloading Nginx and PHP-FPM...failed\n\n";
+		exit;
+	fi 	
+}
+printf "\t==================NGINX VIRTUAL HOST SETUP===================\n\n";
+read -p "Enter a name for virtual host file:" vhFilename;
+checkVhFileExists $vhFilename;
+read -p "Enter absolute application path(Ex:/var/www/myapp):" folderName;
+checkFolderExists $folderName;
+availableAppOptions;
+read -p "Enter application tag option which you need to build virtual host:" appName;
+checkAppNameExists $appName;
+if [ "done"$checkSuccess == "donetrue" ]; then
+	printf "Proceeding...Stage 4\n\n";
+	printf "Make sure that host or domain name do not exist in other virtual host files to avoid conflicts\n\n";
+	read -p "Enter your host or domain name:" hostName;
+	validateHostName $hostName;
+	buildVhFile $appName $vhFilename $folderName $hostName;
+else
+	printf "Invalid entry...exiting\n\n";
+	exit;
+fi
