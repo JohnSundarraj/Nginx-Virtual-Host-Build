@@ -161,9 +161,9 @@ server {
      	include /etc/nginx/fastcgi_params;
   	}
 	# Fighting with ImageCache? This little gem is amazing.
-  	location ~ ^/sites/.*/files/imagecache/ {
-   	try_files \$uri @rewrite;
-  	}
+	location ~ ^/sites/.*/files/styles/ {
+  		try_files \$uri @rewrite;
+	}
   	location ~* \.(js|css|png|jpg|jpeg|gif|ico)$ {
      	expires max;
      	log_not_found off;
