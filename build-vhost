@@ -387,9 +387,9 @@ EOF
 
 	fi 	
 	printf "Virtual Host file has been generated successfully\n\n";			
-	printf "Reloading Nginx and PHP-FPM\n\n";
+	printf "Restarting Nginx and PHP-FPM\n\n";
 	/etc/init.d/nginx restart;
-	/etc/init.d/php5-fpm reload;	
+	/etc/init.d/php5-fpm restart;	
 	if [ $? == "0" ]; then		
 		printf "Reloaded successfully\n\n";
 	else	
